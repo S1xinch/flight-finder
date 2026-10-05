@@ -32,7 +32,7 @@ const today=new Date().toISOString().slice(0,10);$('dep').min=$('ret').min=today
 f.onsubmit=e=>{
  e.preventDefault();
  const o=$('o').value.toUpperCase(),d=$('d').value.toUpperCase(),dep=$('dep').value,ret=$('ret').value,n=Math.min(9,Math.max(1,+$('n').value||1)),c=$('c').value;
- const err=m=>{$('e').textContent=m;$('e').hidden=!m};
+ const err=m=>{$('e').textContent=m;$('e').hidden=!m;if(m)$('results').innerHTML=''};
  if(!/^[A-Z]{3}$/.test(o)||!/^[A-Z]{3}$/.test(d))return err('Use 3-letter airport codes, e.g. JFK.');
  if(o===d)return err('Origin and destination must differ.');
  if(!dep)return err('Choose a departure date.');
