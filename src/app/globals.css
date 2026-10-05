@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #0066cc;
+  --color-ink: #111111;
+  --color-paper: #eeeeee;
+  --color-deal: #28a745;
+  --color-high: #dc3545;
+}
+
+html {
+  font-size: 16px;
+}
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  line-height: 1.5;
+  font-family: Inter, Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  font-weight: 700;
+}
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.125rem; }
+main a:not(.btn),
+footer a {
+  color: var(--color-brand);
+  text-decoration: underline;
+}
+:focus-visible {
+  outline: 3px solid #111;
+  outline-offset: 2px;
+}
+
+.wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.card { background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 16px; }
+
+.btn {
+  display: inline-block;
+  background: var(--color-brand);
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn:hover { opacity: 0.9; }
+.btn:active { opacity: 0.8; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-plain { background: #fff; color: var(--color-ink); border: 1px solid #888; }
+
+label { display: block; font-weight: 600; margin-bottom: 4px; }
+.input {
+  width: 100%;
+  padding: 8px;
+  font: inherit;
+  background: #fff;
+  border: 1px solid #767676;
+  border-radius: 4px;
+}
+.input[aria-invalid="true"] { border-color: var(--color-high); }
+.err { color: #b02a37; font-weight: 600; }
+.badge { display: inline-block; border-radius: 4px; padding: 2px 8px; font-size: 0.875rem; font-weight: 700; }
+.badge-deal { background: var(--color-deal); color: #111; }
+.badge-high { background: var(--color-high); color: #fff; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
+th { font-weight: 700; }
