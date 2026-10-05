@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flight Finder – compare flight prices</title>
+<meta name="description" content="Search once and open the same trip on Google Flights, Skyscanner and Kayak to compare prices.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><a class="brand" href="./">Flight Finder</a></header>
+<main>
+<h1>Compare flight prices</h1>
+<p class="hint">Enter your trip once. We open the same search on Google Flights, Skyscanner and Kayak so you can compare live prices. Free, no account, no tracking links.</p>
+<form id="f" novalidate>
+ <div><label for="o">From (airport code)</label><input id="o" required maxlength="3" placeholder="JFK" autocomplete="off"></div>
+ <div><label for="d">To (airport code)</label><input id="d" required maxlength="3" placeholder="LAX" autocomplete="off"></div>
+ <div><label for="dep">Departure date</label><input id="dep" type="date" required></div>
+ <div><label for="ret">Return date (optional)</label><input id="ret" type="date"></div>
+ <div><label for="n">Passengers</label><input id="n" type="number" min="1" max="9" value="1"></div>
+ <div><label for="c">Cabin</label><select id="c"><option value="economy">Economy</option><option value="premium">Premium economy</option><option value="business">Business</option><option value="first">First</option></select></div>
+ <p class="err" id="e" role="alert" hidden></p>
+ <button>Compare prices</button>
+</form>
+<section id="results" aria-live="polite"></section>
+</main>
+<footer><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms</a></footer>
+<script>
+const $=id=>document.getElementById(id),f=$('f');
+const today=new Date().toISOString().slice(0,10);$('dep').min=$('ret').min=today;
+f.onsubmit=e=>{
+ e.preventDefault();
+ const o=$('o').value.toUpperCase(),d=$('d').value.toUpperCase(),dep=$('dep').value,ret=$('ret').value,n=Math.min(9,Math.max(1,+$('n').value||1)),c=$('c').value;
+ const err=m=>{$('e').textContent=m;$('e').hidden=!m};
+ if(!/^[A-Z]{3}$/.test(o)||!/^[A-Z]{3}$/.test(d))return err('Use 3-letter airport codes, e.g. JFK.');
+ if(o===d)return err('Origin and destination must differ.');
+ if(!dep)return err('Choose a departure date.');
+ if(dep<today)return err('Departure date is in the past.');
+ if(ret&&ret<dep)return err('Return date must be after departure.');
+ err('');
+ const yymmdd=s=>s.slice(2).replace(/-/g,'');
+ const g='https://www.google.com/travel/flights?q='+encodeURIComponent(`Flights from ${o} to ${d} on ${dep}${ret?` through ${ret}`:''} for ${n} adult${n>1?'s':''} ${c} class`);
+ const s=`https://www.skyscanner.com/transport/flights/${o.toLowerCase()}/${d.toLowerCase()}/${yymmdd(dep)}/${ret?yymmdd(ret)+'/':''}?adultsv2=${n}&cabinclass=${c==='premium'?'premiumeconomy':c}`;
+ const k=`https://www.kayak.com/flights/${o}-${d}/${dep}/${ret?ret+'/':''}${c==='economy'?'':c==='premium'?'premium/':c+'/'}${n}adults`;
+ $('results').innerHTML=`<h2>${o} → ${d}</h2><ul>${[['Google Flights',g],['Skyscanner',s],['Kayak',k]].map(([t,u])=>`<li><a href="${u}" target="_blank" rel="noopener noreferrer">View on ${t}</a></li>`).join('')}</ul>`;
+};
+</script>
+</body>
+</html>

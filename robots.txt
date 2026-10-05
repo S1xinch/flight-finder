@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://s1xinch.github.io/flight-finder/sitemap.xml
