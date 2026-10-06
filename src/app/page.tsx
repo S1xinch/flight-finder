@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InstallHint } from "@/components/Pwa";
 import SearchForm from "@/components/SearchForm";
 import { userId } from "@/lib/auth";
 import { sql } from "@/lib/db";
@@ -38,6 +39,7 @@ export default async function Home() {
       </section>
 
       <div className="wrap grid gap-8">
+        <InstallHint />
         {recentCards.length > 0 && (
           <section aria-labelledby="recent">
             <h2 id="recent" className="mb-3">Recent searches</h2>

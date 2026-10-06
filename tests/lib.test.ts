@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { searchAirports, toAirport, type AirportRow } from "../src/lib/airports.ts";
 import { dealInfo } from "../src/lib/deals.ts";
 import { parseParams } from "../src/lib/links.ts";
 import { hourOf, normalize } from "../src/lib/normalize.ts";
@@ -57,6 +58,26 @@ test("normalize skips error rows and rejects non-https booking links", () => {
   assert.equal(normalize([bad])[0].bookingUrl, "");
   assert.equal(hourOf("2026-12-01T18:05:00"), 18);
   assert.equal(hourOf("7:05 PM"), 19);
+});
+
+test("searchAirports matches city, name, code and metro, main airport first", () => {
+  const list = (
+    [
+      ["EWR", "Newark Liberty International Airport", "Newark", "US", 2],
+      ["LGA", "LaGuardia Airport", "New York", "US", 2],
+      ["JFK", "John F. Kennedy International Airport", "New York", "US", 2],
+      ["LHR", "London Heathrow Airport", "London", "GB", 2],
+      ["ZRH", "Zürich Airport", "Zürich", "CH", 2],
+    ] as AirportRow[]
+  ).map(toAirport);
+  const codes = (q: string) => searchAirports(list, q).map((a) => a.code);
+  assert.deepEqual(codes("new york"), ["JFK", "EWR", "LGA"]); // JFK first; EWR found through the metro name
+  assert.deepEqual(codes("nyc"), ["JFK", "EWR", "LGA"]);
+  assert.equal(codes("heathrow")[0], "LHR");
+  assert.equal(codes("lhr")[0], "LHR");
+  assert.equal(codes("zurich")[0], "ZRH"); // accent-insensitive
+  assert.equal(codes("switz")[0], "ZRH"); // country name
+  assert.deepEqual(codes("j"), []); // needs 2+ characters
 });
 
 test("dealInfo flags <=90% of 30d avg, needs 3 samples", () => {

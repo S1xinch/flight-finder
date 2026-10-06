@@ -12,7 +12,7 @@ export function parseParams(get: (k: string) => string | null): Params | string 
   const pax = Number(get("pax") ?? 1);
   const cabin = get("cabin") ?? "economy";
   const today = new Date().toISOString().slice(0, 10);
-  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d)) return "Use 3-letter airport codes, e.g. JFK.";
+  if (!/^[A-Z]{3}$/.test(o) || !/^[A-Z]{3}$/.test(d)) return "Choose where you are flying from and to (city, airport or code).";
   if (o === d) return "Origin and destination must differ.";
   if (!DATE.test(dep) || isNaN(Date.parse(dep))) return "Choose a departure date.";
   if (dep < today) return "Departure date is in the past.";

@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import Sheet from "./Sheet";
 import type { DealInfo, Pt } from "@/lib/deals";
 import { hourOf, type Flight } from "@/lib/normalize";
 
@@ -18,6 +19,40 @@ type Data = {
   params: { o: string; d: string; dep: string; ret: string; pax: number; cabin: string };
 };
 type SortKey = "price" | "durationMin" | "departure" | "emissionsKg";
+
+// Desktop: filters in a sidebar. Phones: a bottom sheet opened by a Filters button.
+const WIDE = "(min-width: 1024px)";
+const subscribeWide = (cb: () => void) => {
+  const m = matchMedia(WIDE);
+  m.addEventListener("change", cb);
+  return () => m.removeEventListener("change", cb);
+};
+
+// Phones get cards instead of the wide table.
+const PHONE = "(max-width: 767px)";
+const subscribePhone = (cb: () => void) => {
+  const m = matchMedia(PHONE);
+  m.addEventListener("change", cb);
+  return () => m.removeEventListener("change", cb);
+};
+
+function FilterShell({ wide, open, onOpen, onClose, children }: { wide: boolean; open: boolean; onOpen: () => void; onClose: () => void; children: React.ReactNode }) {
+  if (wide)
+    return (
+      <aside aria-label="Filters" className="card grid h-fit gap-3">
+        <h2 className="text-lg">Filters</h2>
+        {children}
+      </aside>
+    );
+  return (
+    <div>
+      <button type="button" className="btn btn-plain w-full" onClick={onOpen}>Filters</button>
+      <Sheet open={open} onClose={onClose} title="Filters">
+        <div className="grid gap-3">{children}</div>
+      </Sheet>
+    </div>
+  );
+}
 
 const WINDOWS = ["00:00 – 06:00", "06:00 – 12:00", "12:00 – 18:00", "18:00 – 00:00"];
 const money = (n: number, cur = "USD") =>
@@ -43,6 +78,9 @@ export default function Results({ params }: { params: Record<string, string> }) 
   const [maxPrice, setMaxPrice] = useState(0);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "price", dir: 1 });
   const [open, setOpen] = useState<string | null>(null);
+  const wide = useSyncExternalStore(subscribeWide, () => matchMedia(WIDE).matches, () => true);
+  const [sheet, setSheet] = useState(false);
+  const phone = useSyncExternalStore(subscribePhone, () => matchMedia(PHONE).matches, () => false);
 
   useEffect(() => {
     setNow(Date.now());
@@ -166,8 +204,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
       <Watch params={p} />
 
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-        <aside aria-label="Filters" className="card grid h-fit gap-3">
-          <h2 className="text-lg">Filters</h2>
+        <FilterShell wide={wide} open={sheet} onOpen={() => setSheet(true)} onClose={() => setSheet(false)}>
           <details open>
             <summary className="cursor-pointer font-bold">Stops</summary>
             <label className="mt-2 flex items-center gap-2 font-normal">
@@ -204,10 +241,35 @@ export default function Results({ params }: { params: Record<string, string> }) 
             <label htmlFor="mx" className="mt-2">Max price: {money(maxPrice)}</label>
             <input id="mx" type="range" min={0} max={ceiling} value={maxPrice} onChange={(e) => setMaxPrice(Number(e.target.value))} className="w-full" />
           </details>
-        </aside>
+        </FilterShell>
 
         <section aria-labelledby="fares" className="min-w-0">
           <h2 id="fares" className="mb-2">{rows.length} of {data.flights.length} fares</h2>
+          {phone ? (
+            <>
+              <label htmlFor="sort" className="mb-1">Sort by</label>
+              <select
+                id="sort"
+                className="input mb-3"
+                value={`${sort.key}:${sort.dir}`}
+                onChange={(e) => {
+                  const [key, dir] = e.target.value.split(":");
+                  setSort({ key: key as SortKey, dir: Number(dir) as 1 | -1 });
+                }}
+              >
+                <option value="price:1">Price, lowest first</option>
+                <option value="price:-1">Price, highest first</option>
+                <option value="durationMin:1">Shortest duration</option>
+                <option value="departure:1">Departure time</option>
+                <option value="emissionsKg:1">Lowest CO₂</option>
+              </select>
+              <ul className="grid gap-3">
+                {rows.map((f) => (
+                  <FareCard key={f.id} f={f} open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)} book={data.links[0]} />
+                ))}
+              </ul>
+            </>
+          ) : (
           <div className="card overflow-x-auto p-0">
             <table className="w-full min-w-[860px]">
               <thead>
@@ -229,6 +291,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
               </tbody>
             </table>
           </div>
+          )}
           <p className="mt-2 text-sm">
             Prices include required taxes and fees for the passengers you searched. Optional charges such as bags and seat
             selection are not itemised by the data source; check them on the booking site before you pay.
@@ -259,26 +322,55 @@ function FareRow({ f, open, onToggle, book }: { f: Flight; open: boolean; onTogg
       </tr>
       {open && (
         <tr>
-          <td colSpan={8} className="bg-[#f7f7f7]">
-            {f.legs.map((l, i) => (
-              <div key={i} className="mb-3">
-                <h3 className="mb-1">{l.title || (i === 0 ? "Outbound" : "Return")}{l.date ? `, ${l.date}` : ""}</h3>
-                <p className="text-sm">{l.from} to {l.to}, {l.stops === 0 ? "non-stop" : `${l.stops} stop${l.stops > 1 ? "s" : ""}`}, {dur(l.durationMin)}{l.emissionsKg ? `, ${l.emissionsKg} kg CO₂e` : ""}</p>
-                <ul className="mt-1 grid gap-1">
-                  {l.segments.map((s, j) => (
-                    <li key={j}>
-                      <strong>{s.flightNumber}</strong> {s.airline}{s.aircraft ? `, ${s.aircraft}` : ""}: {s.from} {s.depart} to {s.to} {s.arrive}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-            {f.amenities.length > 0 && <p className="text-sm">{f.amenities.filter((a) => !/^Emissions|^Contrail/.test(a)).join(" · ")}</p>}
-            <p className="mt-2 text-sm">Fare breakdown, bag fees and seat prices are shown on the booking site.</p>
-          </td>
+          <td colSpan={8} className="bg-[#f7f7f7]"><FareDetails f={f} /></td>
         </tr>
       )}
     </>
+  );
+}
+
+function FareDetails({ f }: { f: Flight }) {
+  return (
+    <>
+      {f.legs.map((l, i) => (
+        <div key={i} className="mb-3">
+          <h3 className="mb-1">{l.title || (i === 0 ? "Outbound" : "Return")}{l.date ? `, ${l.date}` : ""}</h3>
+          <p className="text-sm">{l.from} to {l.to}, {l.stops === 0 ? "non-stop" : `${l.stops} stop${l.stops > 1 ? "s" : ""}`}, {dur(l.durationMin)}{l.emissionsKg ? `, ${l.emissionsKg} kg CO₂e` : ""}</p>
+          <ul className="mt-1 grid gap-1">
+            {l.segments.map((s, j) => (
+              <li key={j}>
+                <strong>{s.flightNumber}</strong> {s.airline}{s.aircraft ? `, ${s.aircraft}` : ""}: {s.from} {s.depart} to {s.to} {s.arrive}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {f.amenities.length > 0 && <p className="text-sm">{f.amenities.filter((a) => !/^Emissions|^Contrail/.test(a)).join(" · ")}</p>}
+      <p className="mt-2 text-sm">Fare breakdown, bag fees and seat prices are shown on the booking site.</p>
+    </>
+  );
+}
+
+/** Phone layout: one card per fare instead of a wide table. */
+function FareCard({ f, open, onToggle, book }: { f: Flight; open: boolean; onToggle: () => void; book: { name: string; url: string } }) {
+  return (
+    <li className="card grid gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-2xl font-bold">{money(f.price, f.currency)}</span>
+        <span className="text-right font-bold">{f.airline}</span>
+      </div>
+      <p>
+        {f.departure || "n/a"} to {f.arrival || "n/a"}, {dur(f.durationMin)}, {f.stops === 0 ? "non-stop" : `${f.stops} stop${f.stops > 1 ? "s" : ""}`}
+        {f.emissionsKg ? `, ${f.emissionsKg} kg CO₂` : ""}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" className="btn btn-plain" aria-expanded={open} onClick={onToggle}>{open ? "Hide details" : "Details"}</button>
+        <a className="btn text-center" href={f.bookingUrl || book.url} target="_blank" rel="noopener noreferrer">
+          View on {f.bookingUrl ? f.bookingProvider || "airline site" : book.name}
+        </a>
+      </div>
+      {open && <div className="rounded bg-[#f7f7f7] p-3"><FareDetails f={f} /></div>}
+    </li>
   );
 }
 
