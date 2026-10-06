@@ -25,9 +25,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
     if (!EMAIL.test(email)) return json({ error: "Enter a valid email." }, 400);
     if (password.length < 10) return json({ error: "Password must be at least 10 characters." }, 400);
     const t = token();
+    // A verified account is never touched. An unverified one is re-issued a token and the latest password, so a lost
+    // or never-sent verification email can be retried by registering again.
     const rows = await sql`
       INSERT INTO users (email, password_hash, verify_hash) VALUES (${email}, ${await hashPw(password)}, ${sha(t)})
-      ON CONFLICT (email) DO NOTHING RETURNING id`;
+      ON CONFLICT (email) DO UPDATE SET verify_hash = EXCLUDED.verify_hash, password_hash = EXCLUDED.password_hash, updated_at = now()
+      WHERE users.email_verified = FALSE
+      RETURNING id`;
     // Same response whether or not the email exists, so registration can't be used to probe accounts.
     if (rows.length) await sendMail(email, "Verify your Flight Finder email", `Confirm your email: ${appUrl()}/verify?token=${t}`);
     return json({ ok: true, message: "Check your email for a verification link." });
