@@ -188,7 +188,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
   }, [data, direct, stops, skip, windows, maxHours, minPrice, maxPrice, sort, rate]);
 
   if (!params.o) return <p>Enter a search above to see fares.</p>;
-  if (loading) return <p role="status">Searching live fares. A new search can take a minute or two; repeat searches are instant for an hour.</p>;
+  if (loading) return <p role="status">Searching live fares. This usually takes a few seconds, or a couple of minutes if the backup source is needed; repeat searches are instant for an hour.</p>;
   if (error) return <p role="alert" className="err">{error}</p>;
   if (!data) return null;
   if (!data.flights.length) return <p role="status">No fares were returned for this search. Try other dates or airports.</p>;

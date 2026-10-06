@@ -23,8 +23,13 @@ Stack: Next.js (App Router) + Tailwind + Recharts, Neon Postgres, Upstash Redis,
 
 ## How it works
 
-- `/api/search` validates the query, returns cached results (Redis, 1 hour), or spends one live Bright Data lookup
-  (capped by `DAILY_SEARCH_CAP`), then logs the cheapest fare to `price_history`.
+- `/api/search` validates the query and returns cached results (Redis, 1 hour). On a miss it reads Google Flights
+  directly with the vendored [fli-js](src/vendor/fli/NOTICE.md) client (1-3 seconds, no credits, capped by
+  `DIRECT_DAILY_CAP`). If that fails it falls back to a Bright Data lookup (minutes, capped by `DAILY_SEARCH_CAP`).
+  Three direct failures in a row pause the direct path for 10 minutes. Set `SEARCH_PROVIDER=brightdata` to switch it off.
+  Either way the cheapest fare is logged to `price_history`.
+- The direct read is unofficial and may break or be blocked when Google changes its page; that is what the fallback is for.
+- `/api/status` shows live flight status for saved flights near their travel day (Aviationstack, free plan: 100 requests a month).
 - Deal = price at or below 90% of the route's 30-day average (needs 3+ observations). High = 110% or more.
 - `.github/workflows/refresh.yml` calls `/api/cron` every 6 hours. It re-prices the stalest watched routes and emails due alerts.
 - Booking records are encrypted at rest (AES-256-GCM). Passwords use bcrypt (12 rounds). Sessions are 24-hour JWTs in an HTTP-only cookie.

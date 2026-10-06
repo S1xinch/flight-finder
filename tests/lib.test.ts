@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { searchAirports, toAirport, type AirportRow } from "../src/lib/airports.ts";
 import { dealInfo } from "../src/lib/deals.ts";
 import { flightCode, normalizeStatus, pickFlight } from "../src/lib/flightstatus.ts";
+import { fromFli } from "../src/lib/fromfli.ts";
 import { parseParams } from "../src/lib/links.ts";
 import { hourOf, normalize } from "../src/lib/normalize.ts";
 
@@ -115,6 +116,43 @@ test("flight status: code parsing, picking the travel day, normalising", () => {
   assert.equal(s.airline, "Delta");
   assert.equal(pickFlight(rows, "2030-01-01")?.flight_date, "2026-10-06"); // no match: first row
   assert.equal(pickFlight([], "2026-10-07"), null);
+});
+
+test("fromFli maps one-way and round-trip rows from the direct search", () => {
+  const leg = (al: string, no: string, from: string, to: string, dep: string, arr: string, dur: number) => ({
+    airline: al, flight_number: no, departure_airport: from, arrival_airport: to,
+    departure_datetime: new Date(dep), arrival_datetime: new Date(arr), duration: dur,
+    aircraft: "Boeing 737", legroom_short: "30 in",
+    amenities: { wifi: true, wifi_tier: "free", power: true, usb_power: null }, co2_emissions_g: 228000,
+  });
+  const out = {
+    legs: [leg("B6", "1524", "JFK", "LAX", "2026-12-21T07:30:00Z", "2026-12-21T10:45:00Z", 375)],
+    price: 510, currency: "USD", duration: 375, stops: 0, co2_emissions_g: 228000, primary_airline: "B6", primary_airline_name: "JetBlue",
+  };
+  const ret = { ...out, legs: [leg("B6", "1525", "LAX", "JFK", "2026-12-28T10:00:00Z", "2026-12-28T18:20:00Z", 320)], price: 579, duration: 320 };
+  const url = () => "https://www.google.com/travel/flights/booking?tfs=x";
+
+  const [one] = fromFli([out], url);
+  assert.equal(one.price, 510);
+  assert.equal(one.airline, "JetBlue");
+  assert.equal(one.flightNumber, "B6 1524");
+  assert.equal(one.departure, "07:30"); // local clock time, 24-hour
+  assert.equal(one.arrival, "10:45");
+  assert.equal(one.emissionsKg, 228);
+  assert.equal(one.aircraft, "Boeing 737");
+  assert.ok(one.amenities.includes("Free Wi-Fi"));
+  assert.equal(one.bookingProvider, "Google Flights");
+  assert.equal(one.legs.length, 1);
+
+  const [rt] = fromFli([[out, ret]], url);
+  assert.equal(rt.price, 579); // the return half carries the round-trip total
+  assert.equal(rt.legs.length, 2);
+  assert.equal(rt.legs[1].title, "Return");
+  assert.equal(rt.legs[1].date, "2026-12-28");
+
+  assert.equal(fromFli([{ ...out, price: 0 }], url).length, 0); // unpriced rows are skipped
+  assert.equal(fromFli([out, out], url).length, 1); // duplicates collapse
+  assert.equal(fromFli([out], () => "http://insecure")[0].bookingUrl, ""); // only https links are kept
 });
 
 test("parseParams validates", () => {

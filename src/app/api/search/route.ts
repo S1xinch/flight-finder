@@ -2,11 +2,14 @@ import { userId } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { json, limit } from "@/lib/http";
 import { parseParams, partnerLinks } from "@/lib/links";
-import { dealFor, finish, hit, start } from "@/lib/search";
+import { dealFor, direct, finish, hit, start } from "@/lib/search";
+
+export const maxDuration = 30; // a direct search takes a few seconds (round trips fetch several pages)
 
 /**
- * GET /api/search?...          -> cached result, or starts a live lookup and returns {pending, snap} (202)
- * GET /api/search?...&snap=ID  -> result when the lookup has finished, else {pending, snap} again
+ * GET /api/search?...          -> cached result; else a direct Google Flights read (seconds); else a Bright Data lookup
+ *                                 is started and {pending, snap} (202) is returned
+ * GET /api/search?...&snap=ID  -> result when that Bright Data lookup has finished, else {pending, snap} again
  */
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
@@ -17,7 +20,8 @@ export async function GET(req: Request) {
   if (typeof p === "string") return json({ error: p }, 400);
 
   try {
-    const r = snap ? await finish(p, snap) : await hit(p);
+    let r = snap ? await finish(p, snap) : await hit(p);
+    if (!r && !snap) r = await direct(p); // fast path; null means use the Bright Data fallback below
     if (!r) return json({ pending: true, snap: snap ?? (await start(p)) }, 202);
 
     const { hist, deal } = await dealFor(r.routeId, r.flights);

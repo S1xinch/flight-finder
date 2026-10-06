@@ -4,7 +4,7 @@ import { sendMail } from "@/lib/mail";
 import { refreshBlocking } from "@/lib/search";
 
 export const maxDuration = 60;
-const PER_RUN = 3; // each route is one live lookup (~1 Bright Data call); keeps a run inside maxDuration and the free quota
+const PER_RUN = 8; // direct reads take a few seconds each and cost no credits; only failures fall back to Bright Data
 
 /** Scheduled by GitHub Actions. Refreshes the stalest watched routes, then emails due alerts. */
 export async function GET(req: Request) {
