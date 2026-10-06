@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { searchAirports, toAirport, type AirportRow } from "../src/lib/airports.ts";
 import { dealInfo } from "../src/lib/deals.ts";
+import { flightCode, normalizeStatus, pickFlight } from "../src/lib/flightstatus.ts";
 import { parseParams } from "../src/lib/links.ts";
 import { hourOf, normalize } from "../src/lib/normalize.ts";
 
@@ -89,6 +90,31 @@ test("dealInfo flags <=90% of 30d avg, needs 3 samples", () => {
   assert.equal(dealInfo(110, hist, now).isHigh, true);
   assert.equal(dealInfo(50, hist.slice(0, 2), now).isDeal, false);
   assert.equal(dealInfo(1, [], now).avg30, null);
+});
+
+test("flight status: code parsing, picking the travel day, normalising", () => {
+  assert.equal(flightCode("DL 742"), "DL742");
+  assert.equal(flightCode("dl742, DL 99"), "DL742"); // first leg of a connection
+  assert.equal(flightCode("not a flight"), null);
+  const rows = [
+    { flight_date: "2026-10-06", flight_status: "landed", departure: { iata: "JFK" }, arrival: { iata: "LAX" }, flight: { iata: "DL742" } },
+    {
+      flight_date: "2026-10-07",
+      flight_status: "active",
+      airline: { name: "Delta" },
+      flight: { iata: "DL742" },
+      departure: { iata: "JFK", terminal: "4", gate: "B22", delay: 12, scheduled: "2026-10-07T07:00:00+00:00" },
+      arrival: { iata: "LAX", delay: 20, baggage: "4" },
+    },
+  ];
+  const s = normalizeStatus(pickFlight(rows, "2026-10-07"));
+  assert.equal(s.status, "active");
+  assert.equal(s.delayMin, 20); // arrival delay wins
+  assert.equal(s.dep.gate, "B22");
+  assert.equal(s.arr.baggage, "4");
+  assert.equal(s.airline, "Delta");
+  assert.equal(pickFlight(rows, "2030-01-01")?.flight_date, "2026-10-06"); // no match: first row
+  assert.equal(pickFlight([], "2026-10-07"), null);
 });
 
 test("parseParams validates", () => {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { CURRENCIES, currencyName } from "@/lib/currencies";
+import { flightCode, type FlightStatus } from "@/lib/flightstatus";
 import { money, useCurrency } from "@/lib/money";
 
 type Alert = { id: number; origin: string; destination: string; dep: string; ret: string; passengers: number; cabin: string; drop_pct: number; threshold: number; frequency: string; status: string; current_price: number | null; updated: number | null };
@@ -20,6 +21,38 @@ const api = (url: string, method = "GET", body?: unknown) =>
   fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
 const link = (o: string, d: string, dep: string, ret: string, pax: number, cabin: string) =>
   `/results?o=${o}&d=${d}&dep=${dep}${ret ? `&ret=${ret}` : ""}&pax=${pax}&cabin=${cabin}`;
+
+type StatusState = { loading?: boolean; error?: string; none?: boolean; data?: FlightStatus };
+
+const clock = (iso: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a");
+const LABEL: Record<string, string> = { scheduled: "On schedule", active: "In the air", landed: "Landed", cancelled: "Cancelled", incident: "Incident reported", diverted: "Diverted" };
+
+function StatusPanel({ st }: { st?: StatusState }) {
+  if (!st || st.loading) return null;
+  if (st.error) return <p role="alert" className="err text-sm">{st.error}</p>;
+  if (st.none || !st.data) return <p role="status" className="text-sm">No live data for this flight yet. Status is available on the day of travel.</p>;
+  const d = st.data;
+  return (
+    <div role="status" className="rounded bg-[#f7f7f7] p-3 text-sm">
+      <p className="font-bold">
+        {LABEL[d.status] ?? d.status}
+        {d.delayMin > 0 ? `, ${d.delayMin} min late` : ""}
+      </p>
+      <p>
+        Departs {d.dep.iata} {clock(d.dep.actual || d.dep.estimated || d.dep.scheduled)}
+        {d.dep.terminal ? `, terminal ${d.dep.terminal}` : ""}
+        {d.dep.gate ? `, gate ${d.dep.gate}` : ""}
+      </p>
+      <p>
+        Arrives {d.arr.iata} {clock(d.arr.actual || d.arr.estimated || d.arr.scheduled)}
+        {d.arr.terminal ? `, terminal ${d.arr.terminal}` : ""}
+        {d.arr.gate ? `, gate ${d.arr.gate}` : ""}
+        {d.arr.baggage ? `, baggage belt ${d.arr.baggage}` : ""}
+      </p>
+      <p className="mt-1">Times are in each airport&apos;s local time. Live data from Aviationstack; it can lag by a minute or two.</p>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const router = useRouter();
@@ -58,6 +91,21 @@ export default function Dashboard() {
     if (r.ok) f.reset();
     else setErr((await r.json().catch(() => ({}))).error ?? "Could not save.");
     await load();
+  }
+
+  // Live status exists only around the travel day, and the free data plan is small, so it is a button, not automatic.
+  const [status, setStatus] = useState<Record<number, StatusState>>({});
+  const canCheckStatus = (s: Saved) =>
+    !!flightCode(s.flight.flightNumber) && Math.abs(Date.parse(s.dep) - Date.parse(new Date().toISOString().slice(0, 10))) <= 864e5;
+  async function checkStatus(s: Saved) {
+    const code = flightCode(s.flight.flightNumber)!;
+    setStatus((m) => ({ ...m, [s.id]: { loading: true } }));
+    const r = await api(`/api/status?flight=${encodeURIComponent(code)}&date=${s.dep}`);
+    const j = await r.json().catch(() => ({}));
+    setStatus((m) => ({
+      ...m,
+      [s.id]: !r.ok ? { error: j.error ?? "Could not check status." } : j.found ? { data: j.status } : { none: true },
+    }));
   }
 
   async function signOut() {
@@ -137,8 +185,14 @@ export default function Dashboard() {
                     {!past && s.flight.bookingUrl && (
                       <a className="btn" href={s.flight.bookingUrl} target="_blank" rel="noopener noreferrer">View on {s.flight.bookingProvider || "airline site"}</a>
                     )}
+                    {canCheckStatus(s) && (
+                      <button className="btn btn-plain" onClick={() => checkStatus(s)} disabled={status[s.id]?.loading}>
+                        {status[s.id]?.loading ? "Checking…" : "Flight status"}
+                      </button>
+                    )}
                     <button className="btn btn-plain" onClick={() => act(`/api/saved?id=${s.id}`, "DELETE")}>Remove</button>
                   </div>
+                  <StatusPanel st={status[s.id]} />
                 </li>
               );
             })}
