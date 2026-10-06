@@ -17,7 +17,7 @@ type Data = {
   links: { name: string; url: string }[];
   params: { o: string; d: string; dep: string; ret: string; pax: number; cabin: string };
 };
-type SortKey = "price" | "durationMin" | "departure";
+type SortKey = "price" | "durationMin" | "departure" | "emissionsKg";
 
 const WINDOWS = ["00:00 – 06:00", "06:00 – 12:00", "12:00 – 18:00", "18:00 – 00:00"];
 const money = (n: number, cur = "USD") =>
@@ -53,21 +53,39 @@ export default function Results({ params }: { params: Record<string, string> }) 
   const qs = new URLSearchParams(params).toString();
   useEffect(() => {
     if (!params.o) return;
-    const ctl = new AbortController();
+    let dead = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const t0 = Date.now();
     setLoading(true);
     setError("");
     setData(null);
-    fetch(`/api/search?${qs}`, { signal: ctl.signal })
-      .then(async (r) => {
+    // A new search starts a live lookup (returns {pending, snap}); poll until it finishes.
+    async function run(snap?: string) {
+      try {
+        const r = await fetch(`/api/search?${qs}${snap ? `&snap=${snap}` : ""}`);
         const j = await r.json();
+        if (dead) return;
         if (!r.ok) throw new Error(j.error ?? "Search failed.");
+        if (j.pending) {
+          if (Date.now() - t0 > 300_000) throw new Error("The flight source is taking too long. Try again shortly.");
+          timer = setTimeout(() => run(j.snap), 3000);
+          return;
+        }
         setData(j);
         setMaxPrice(Math.ceil(Math.max(0, ...j.flights.map((f: Flight) => f.price))));
         setSkip(new Set());
-      })
-      .catch((e) => e.name !== "AbortError" && setError(e.message))
-      .finally(() => !ctl.signal.aborted && setLoading(false));
-    return () => ctl.abort();
+        setLoading(false);
+      } catch (e) {
+        if (dead) return;
+        setError(e instanceof Error ? e.message : "Search failed.");
+        setLoading(false);
+      }
+    }
+    run();
+    return () => {
+      dead = true;
+      clearTimeout(timer);
+    };
   }, [qs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const airlines = useMemo(() => [...new Set(data?.flights.map((f) => f.airline))].sort(), [data]);
@@ -92,7 +110,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
   }, [data, direct, stops, skip, windows, maxHours, minPrice, maxPrice, sort]);
 
   if (!params.o) return <p>Enter a search above to see fares.</p>;
-  if (loading) return <p role="status">Searching live fares. This can take up to a minute the first time; repeat searches are instant for an hour.</p>;
+  if (loading) return <p role="status">Searching live fares. A new search can take a minute or two; repeat searches are instant for an hour.</p>;
   if (error) return <p role="alert" className="err">{error}</p>;
   if (!data) return null;
   if (!data.flights.length) return <p role="status">No fares were returned for this search. Try other dates or airports.</p>;
@@ -114,6 +132,9 @@ export default function Results({ params }: { params: Record<string, string> }) 
         <p>
           Updated {now ? ago(now - data.fetchedAt) : "…"}
           {data.cached ? " (cached results are refreshed hourly)" : ""}. Lowest fare {money(Math.min(...data.flights.map((f) => f.price)), data.flights[0].currency)}.
+          {data.flights[0].typicalHigh > 0 && (
+            <> Google&apos;s typical price range for this trip: {money(data.flights[0].typicalLow, data.flights[0].currency)} to {money(data.flights[0].typicalHigh, data.flights[0].currency)}.</>
+          )}
         </p>
         <p className="flex flex-wrap items-center gap-3">
           {deal.isDeal && <span className="badge badge-deal">Hot Deal</span>}
@@ -188,7 +209,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
         <section aria-labelledby="fares" className="min-w-0">
           <h2 id="fares" className="mb-2">{rows.length} of {data.flights.length} fares</h2>
           <div className="card overflow-x-auto p-0">
-            <table className="w-full min-w-[720px]">
+            <table className="w-full min-w-[860px]">
               <thead>
                 <tr>
                   <th scope="col" aria-sort={ariaSort("departure")}><SortBtn k="departure">Departs</SortBtn></th>
@@ -196,6 +217,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
                   <th scope="col" aria-sort={ariaSort("durationMin")}><SortBtn k="durationMin">Duration</SortBtn></th>
                   <th scope="col">Stops</th>
                   <th scope="col">Airline</th>
+                  <th scope="col" aria-sort={ariaSort("emissionsKg")}><SortBtn k="emissionsKg">CO₂</SortBtn></th>
                   <th scope="col" aria-sort={ariaSort("price")}><SortBtn k="price">Price</SortBtn></th>
                   <th scope="col"><span className="sr-only">Actions</span></th>
                 </tr>
@@ -208,8 +230,8 @@ export default function Results({ params }: { params: Record<string, string> }) 
             </table>
           </div>
           <p className="mt-2 text-sm">
-            Prices are the totals shown by the source. Baggage, taxes and seat fees are not itemised by the data source; check
-            them on the booking site before you pay.
+            Prices include required taxes and fees for the passengers you searched. Optional charges such as bags and seat
+            selection are not itemised by the data source; check them on the booking site before you pay.
           </p>
         </section>
       </div>
@@ -226,22 +248,33 @@ function FareRow({ f, open, onToggle, book }: { f: Flight; open: boolean; onTogg
         <td>{dur(f.durationMin)}</td>
         <td>{f.stops === 0 ? "Non-stop" : `${f.stops} stop${f.stops > 1 ? "s" : ""}`}</td>
         <td>{f.airline}</td>
+        <td>{f.emissionsKg ? `${f.emissionsKg} kg` : "n/a"}</td>
         <td className="font-bold">{money(f.price, f.currency)}</td>
         <td className="whitespace-nowrap">
           <button type="button" className="btn btn-plain mr-2" aria-expanded={open} onClick={onToggle}>{open ? "Hide" : "Details"}</button>
-          <a className="btn" href={book.url} target="_blank" rel="noopener noreferrer">View on {book.name}</a>
+          <a className="btn" href={f.bookingUrl || book.url} target="_blank" rel="noopener noreferrer">
+            View on {f.bookingUrl ? f.bookingProvider || "airline site" : book.name}
+          </a>
         </td>
       </tr>
       {open && (
         <tr>
-          <td colSpan={7} className="bg-[#f7f7f7]">
-            <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
-              <div><dt className="inline font-bold">Flight: </dt><dd className="inline">{f.flightNumber || "n/a"} ({f.airline})</dd></div>
-              <div><dt className="inline font-bold">Times: </dt><dd className="inline">{f.departure} to {f.arrival}</dd></div>
-              <div><dt className="inline font-bold">Duration: </dt><dd className="inline">{dur(f.durationMin)}</dd></div>
-              <div><dt className="inline font-bold">Stops: </dt><dd className="inline">{f.stops}</dd></div>
-            </dl>
-            <p className="mt-2 text-sm">Aircraft type, fare breakdown, baggage rules and seat prices are shown on the booking site.</p>
+          <td colSpan={8} className="bg-[#f7f7f7]">
+            {f.legs.map((l, i) => (
+              <div key={i} className="mb-3">
+                <h3 className="mb-1">{l.title || (i === 0 ? "Outbound" : "Return")}{l.date ? `, ${l.date}` : ""}</h3>
+                <p className="text-sm">{l.from} to {l.to}, {l.stops === 0 ? "non-stop" : `${l.stops} stop${l.stops > 1 ? "s" : ""}`}, {dur(l.durationMin)}{l.emissionsKg ? `, ${l.emissionsKg} kg CO₂e` : ""}</p>
+                <ul className="mt-1 grid gap-1">
+                  {l.segments.map((s, j) => (
+                    <li key={j}>
+                      <strong>{s.flightNumber}</strong> {s.airline}{s.aircraft ? `, ${s.aircraft}` : ""}: {s.from} {s.depart} to {s.to} {s.arrive}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {f.amenities.length > 0 && <p className="text-sm">{f.amenities.filter((a) => !/^Emissions|^Contrail/.test(a)).join(" · ")}</p>}
+            <p className="mt-2 text-sm">Fare breakdown, bag fees and seat prices are shown on the booking site.</p>
           </td>
         </tr>
       )}

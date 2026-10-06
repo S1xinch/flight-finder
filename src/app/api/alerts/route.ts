@@ -3,9 +3,8 @@ import { sql } from "@/lib/db";
 import { json, limit } from "@/lib/http";
 import { parseParams } from "@/lib/links";
 import { upsertRoute } from "@/lib/queries";
-import { search } from "@/lib/search";
+import { hit } from "@/lib/search";
 
-export const maxDuration = 60;
 const FREQ = ["daily", "on_change"];
 
 export async function GET() {
@@ -36,19 +35,15 @@ export async function POST(req: Request) {
   const count = (await sql`SELECT count(*)::int AS n FROM price_alerts WHERE user_id = ${uid}`)[0].n;
   if (count >= 20) return json({ error: "You can watch up to 20 routes." }, 400);
 
-  try {
-    const r = await search(p);
-    if (!r.flights.length) return json({ error: "No fares found to use as a baseline." }, 400);
-    const base = Math.min(...r.flights.map((f) => f.price));
-    const routeId = await upsertRoute(p);
-    await sql`
-      INSERT INTO price_alerts (user_id, route_id, passengers, cabin, drop_pct, price_threshold, frequency)
-      VALUES (${uid}, ${routeId}, ${p.pax}, ${p.cabin}, ${dropPct}, ${base * (1 - dropPct / 100)}, ${frequency})`;
-    return json({ ok: true });
-  } catch (e) {
-    console.error("alert create failed", e);
-    return json({ error: "Could not read current prices. Try again." }, 502);
-  }
+  // Baseline = the cached fares from the search the user is looking at (no extra live lookup).
+  const r = await hit(p);
+  if (!r?.flights.length) return json({ error: "Search this route first (results expire after an hour), then set the alert." }, 400);
+  const base = Math.min(...r.flights.map((f) => f.price));
+  const routeId = await upsertRoute(p);
+  await sql`
+    INSERT INTO price_alerts (user_id, route_id, passengers, cabin, drop_pct, price_threshold, frequency)
+    VALUES (${uid}, ${routeId}, ${p.pax}, ${p.cabin}, ${dropPct}, ${base * (1 - dropPct / 100)}, ${frequency})`;
+  return json({ ok: true });
 }
 
 export async function PATCH(req: Request) {

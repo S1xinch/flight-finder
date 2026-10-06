@@ -1,15 +1,16 @@
-import { googleFlightsUrl, type Params } from "./links";
+import type { Params } from "./links";
 import { normalize, type Flight } from "./normalize";
 
 const BASE = "https://api.brightdata.com/datasets/v3";
 const DATASET = "gd_mhng7wen1rw0a3gvpf"; // Google Flights, collect by URL
-const DEADLINE_MS = 55_000; // route maxDuration is 60s
 const headers = () => ({
   Authorization: `Bearer ${process.env.BRIGHTDATA_API_KEY}`,
   "Content-Type": "application/json",
 });
+const call = (path: string, init: RequestInit = {}) =>
+  fetch(`${BASE}${path}`, { ...init, headers: headers(), signal: AbortSignal.timeout(20_000) });
 
-// Sync endpoint returns JSON, or NDJSON for multi-record output.
+// Snapshot output is JSON, or NDJSON for multi-record output.
 const parse = (text: string) => {
   try {
     return JSON.parse(text);
@@ -18,32 +19,57 @@ const parse = (text: string) => {
   }
 };
 
-async function poll(id: string, until: number) {
-  while (Date.now() < until) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const p = await fetch(`${BASE}/progress/${id}`, { headers: headers() });
-    const { status } = await p.json();
-    if (status === "failed") throw new Error("Bright Data job failed");
-    if (status === "ready") {
-      const s = await fetch(`${BASE}/snapshot/${id}?format=json`, { headers: headers() });
-      return parse(await s.text());
-    }
-  }
-  throw new Error("Bright Data timed out");
+// Each returned flight row can cost a credit, so keep this small: ~15 searches/day fits the 5,000 free credits/month.
+const LIMIT_PER_SEARCH = 10;
+
+/** Start an async Bright Data "discover by input filters" search. Returns its snapshot id. */
+export async function trigger(p: Params): Promise<string> {
+  const input = {
+    origin: p.o,
+    destination: p.d,
+    departure: p.dep,
+    ...(p.ret ? { return: p.ret } : {}),
+    // The live validator wants these exact spellings (the docs' snake_case values are rejected).
+    trip_type: p.ret ? "Round trip" : "One way",
+    adults: p.pax,
+    children: 0,
+    infants_in_seat: 0,
+    infants_on_lap: 0,
+    cabin: { economy: "Economy", premium: "Premium economy", business: "Business", first: "First" }[p.cabin],
+    currency: "USD",
+    language: "en",
+    country: "US",
+  };
+  const res = await call(
+    `/trigger?dataset_id=${DATASET}&type=discover_new&discover_by=input_filters&limit_per_input=${LIMIT_PER_SEARCH}&include_errors=true`,
+    { method: "POST", body: JSON.stringify([input]) },
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Bright Data ${res.status}: ${text.slice(0, 1200)}`);
+  const id = parse(text).snapshot_id;
+  if (!id) throw new Error(`Bright Data returned no snapshot id: ${text.slice(0, 200)}`);
+  return id;
 }
 
-export async function fetchFlights(p: Params): Promise<Flight[]> {
-  const until = Date.now() + DEADLINE_MS;
-  const res = await fetch(`${BASE}/scrape?dataset_id=${DATASET}&notify=false&include_errors=true`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({ input: [{ url: googleFlightsUrl(p) }] }),
-    signal: AbortSignal.timeout(DEADLINE_MS),
-  });
-  if (!res.ok) throw new Error(`Bright Data ${res.status}`);
-  let data = parse(await res.text());
-  if (data && !Array.isArray(data) && data.snapshot_id) data = await poll(data.snapshot_id, until);
+export type Snap = { status: "running" } | { status: "ready"; flights: Flight[] };
+
+/** Check a collection; when finished, return the normalized flights. */
+export async function snapshot(id: string): Promise<Snap> {
+  const pr = await call(`/progress/${id}`);
+  if (!pr.ok) throw new Error(`Bright Data progress ${pr.status}: ${(await pr.text()).slice(0, 200)}`);
+  const { status } = await pr.json();
+  if (status === "failed") throw new Error("Bright Data job failed");
+  if (status !== "ready") return { status: "running" };
+
+  const sr = await call(`/snapshot/${id}?format=json`);
+  if (sr.status === 202) return { status: "running" };
+  const text = await sr.text();
+  if (!sr.ok) throw new Error(`Bright Data snapshot ${sr.status}: ${text.slice(0, 200)}`);
+  const data = parse(text);
   const flights = normalize(data);
-  if (!flights.length) console.warn("brightdata: no flights parsed from", JSON.stringify(data).slice(0, 600));
-  return flights;
+  const rows: { error?: string }[] = Array.isArray(data) ? data : [data];
+  console.log(`brightdata ${rows.length} rows, ${flights.length} parsed, errors:`, JSON.stringify([...new Set(rows.map((r) => r?.error).filter(Boolean))]).slice(0, 500));
+  // Depart/arrive times arrive without AM/PM in some rows; log a few so the 24-hour assumption can be checked.
+  console.log("brightdata times:", JSON.stringify(rows.slice(0, 10).map((r) => (r as { legs?: { depart_local?: string; arrive_local?: string }[] }).legs?.[0]).map((l) => [l?.depart_local, l?.arrive_local])));
+  return { status: "ready", flights };
 }

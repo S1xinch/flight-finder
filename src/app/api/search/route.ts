@@ -2,19 +2,24 @@ import { userId } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { json, limit } from "@/lib/http";
 import { parseParams, partnerLinks } from "@/lib/links";
-import { dealFor, search } from "@/lib/search";
+import { dealFor, finish, hit, start } from "@/lib/search";
 
-export const maxDuration = 60;
-
+/**
+ * GET /api/search?...          -> cached result, or starts a live lookup and returns {pending, snap} (202)
+ * GET /api/search?...&snap=ID  -> result when the lookup has finished, else {pending, snap} again
+ */
 export async function GET(req: Request) {
-  const rl = await limit(req, "search", 10);
-  if (rl) return rl;
   const q = new URL(req.url).searchParams;
+  const snap = q.get("snap");
+  const rl = await limit(req, snap ? "search-poll" : "search", snap ? 60 : 10);
+  if (rl) return rl;
   const p = parseParams((k) => q.get(k));
   if (typeof p === "string") return json({ error: p }, 400);
 
   try {
-    const r = await search(p);
+    const r = snap ? await finish(p, snap) : await hit(p);
+    if (!r) return json({ pending: true, snap: snap ?? (await start(p)) }, 202);
+
     const { hist, deal } = await dealFor(r.routeId, r.flights);
     const uid = await userId();
     if (uid) {
@@ -28,7 +33,7 @@ export async function GET(req: Request) {
     return json({ ...r, deal, history: hist, links: partnerLinks(p), params: p });
   } catch (e) {
     console.error("search failed", e);
-    const msg = e instanceof Error && e.message.startsWith("Daily") ? e.message : "The flight source is unavailable. Try again in a minute.";
-    return json({ error: msg }, 502);
+    const user = e instanceof Error && /^(Daily|Unknown)/.test(e.message);
+    return json({ error: user ? (e as Error).message : "The flight source is unavailable. Try again in a minute." }, 502);
   }
 }

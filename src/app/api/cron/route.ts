@@ -1,7 +1,7 @@
 import { sql } from "@/lib/db";
 import { json } from "@/lib/http";
 import { sendMail } from "@/lib/mail";
-import { search } from "@/lib/search";
+import { refreshBlocking } from "@/lib/search";
 
 export const maxDuration = 60;
 const PER_RUN = 3; // each route is one live lookup (~1 Bright Data call); keeps a run inside maxDuration and the free quota
@@ -23,19 +23,15 @@ export async function GET(req: Request) {
     WHERE last_ts IS NULL OR last_ts < now() - interval '3 hours'
     ORDER BY last_ts NULLS FIRST LIMIT ${PER_RUN}`;
 
+  const results = await refreshBlocking(routes.map((r) => ({ o: r.o, d: r.d, dep: r.dep, ret: r.ret, pax: r.pax, cabin: r.cabin })));
+
   let refreshed = 0;
   let emailed = 0;
-  for (const r of routes) {
-    let min: number;
-    try {
-      const res = await search({ o: r.o, d: r.d, dep: r.dep, ret: r.ret, pax: r.pax, cabin: r.cabin }, true);
-      if (!res.flights.length) continue;
-      min = Math.min(...res.flights.map((f) => f.price));
-      refreshed++;
-    } catch (e) {
-      console.error("cron refresh failed", r.o, r.d, e);
-      continue;
-    }
+  for (const [i, r] of routes.entries()) {
+    const res = results[i];
+    if (!res?.flights.length) continue;
+    refreshed++;
+    const min = Math.min(...res.flights.map((f) => f.price));
     const alerts = await sql`
       SELECT a.id, a.price_threshold::float8 AS threshold, a.frequency, a.last_price::float8 AS last_price,
              a.last_notified_at, u.email
