@@ -20,7 +20,10 @@ export async function GET(req: Request) {
     total_price: r.total_price,
     booked_at: r.booked_at,
   }));
-  return new Response(JSON.stringify({ user, searches, alerts, bookings }, null, 2), {
+  const savedFlights = await sql`
+    SELECT origin, destination, depart_date, return_date, passengers, cabin, flight, saved_price, currency, created_at
+    FROM saved_flights WHERE user_id = ${uid}`;
+  return new Response(JSON.stringify({ user, searches, alerts, bookings, savedFlights }, null, 2), {
     headers: { "Content-Type": "application/json", "Content-Disposition": 'attachment; filename="flight-finder-data.json"' },
   });
 }

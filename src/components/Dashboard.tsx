@@ -7,6 +7,13 @@ import { useCallback, useEffect, useState } from "react";
 type Alert = { id: number; origin: string; destination: string; dep: string; ret: string; passengers: number; cabin: string; drop_pct: number; threshold: number; frequency: string; status: string; current_price: number | null; updated: number | null };
 type Search = { o: string; d: string; dep: string; ret: string; pax: number; cabin: string };
 type Booking = { id: number; airline: string; route: string; date: string; confirmation: string; totalPrice: number | null };
+type Saved = {
+  id: number; origin: string; destination: string; dep: string; ret: string; passengers: number; cabin: string;
+  price: number; currency: string; created_at: string;
+  flight: { airline: string; flightNumber: string; departure: string; arrival: string; durationMin: number; stops: number; bookingProvider: string; bookingUrl: string };
+};
+const fmt = (n: number, c: string) => new Intl.NumberFormat("en-US", { style: "currency", currency: c, maximumFractionDigits: 0 }).format(n);
+const hm = (m: number) => (m ? `${Math.floor(m / 60)}h ${m % 60}m` : "");
 
 const api = (url: string, method = "GET", body?: unknown) =>
   fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
@@ -18,15 +25,17 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [searches, setSearches] = useState<Search[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [saved, setSaved] = useState<Saved[]>([]);
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
-    const [a, s, b, u] = await Promise.all([api("/api/alerts"), api("/api/searches"), api("/api/bookings"), api("/api/account")]);
+    const [a, s, b, u, sv] = await Promise.all([api("/api/alerts"), api("/api/searches"), api("/api/bookings"), api("/api/account"), api("/api/saved")]);
     if (a.status === 401) return router.push("/login");
     setAlerts(await a.json());
     setSearches(await s.json());
     setBookings(await b.json());
+    setSaved(await sv.json());
     setEmailAlerts((await u.json()).emailAlerts);
   }, [router]);
   useEffect(() => { load(); }, [load]);
@@ -96,6 +105,41 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section aria-labelledby="saved" className="card">
+        <h2 id="saved" className="mb-1">Saved flights</h2>
+        <p className="mb-3 text-sm">Flights you saved from search results. They sync to every device you sign in on. Booking links can expire, so use Check current price for a fresh one.</p>
+        {saved.length === 0 ? (
+          <p>Nothing saved yet. Use <strong>Save</strong> on a fare in the search results.</p>
+        ) : (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {saved.map((s) => {
+              const past = s.dep < new Date().toISOString().slice(0, 10);
+              return (
+                <li key={s.id} className="card grid gap-1" style={past ? { opacity: 0.65 } : undefined}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <strong>{s.origin} to {s.destination}</strong>
+                    <span className="text-xl font-bold">{fmt(s.price, s.currency)}</span>
+                  </div>
+                  <p className="text-sm">{s.dep}{s.ret ? ` to ${s.ret}` : ""}{past ? " (departed)" : ""}</p>
+                  <p className="text-sm">
+                    {s.flight.airline} {s.flight.flightNumber}, {s.flight.departure} to {s.flight.arrival}
+                    {s.flight.durationMin ? `, ${hm(s.flight.durationMin)}` : ""}, {s.flight.stops === 0 ? "non-stop" : `${s.flight.stops} stop${s.flight.stops > 1 ? "s" : ""}`}
+                  </p>
+                  <p className="text-sm">Price when saved, {new Date(s.created_at).toLocaleDateString()}.</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {!past && <Link className="btn btn-plain" href={link(s.origin, s.destination, s.dep, s.ret, s.passengers, s.cabin)}>Check current price</Link>}
+                    {!past && s.flight.bookingUrl && (
+                      <a className="btn" href={s.flight.bookingUrl} target="_blank" rel="noopener noreferrer">View on {s.flight.bookingProvider || "airline site"}</a>
+                    )}
+                    <button className="btn btn-plain" onClick={() => act(`/api/saved?id=${s.id}`, "DELETE")}>Remove</button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </section>
 

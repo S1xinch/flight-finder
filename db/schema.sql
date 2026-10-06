@@ -47,6 +47,22 @@ CREATE TABLE IF NOT EXISTS bookings (
   total_price NUMERIC,
   booked_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS saved_flights (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  flight_id TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  destination TEXT NOT NULL,
+  depart_date DATE NOT NULL,
+  return_date TEXT NOT NULL DEFAULT '',
+  passengers INT NOT NULL DEFAULT 1,
+  cabin TEXT NOT NULL DEFAULT 'economy',
+  flight JSONB NOT NULL,
+  saved_price NUMERIC NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, flight_id, origin, destination, depart_date, return_date)
+);
 CREATE TABLE IF NOT EXISTS price_alerts (
   id SERIAL PRIMARY KEY,
   user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

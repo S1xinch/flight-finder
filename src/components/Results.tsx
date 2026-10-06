@@ -121,6 +121,43 @@ export default function Results({ params }: { params: Record<string, string> }) 
   FX.cur = rate ? cur : "USD";
   FX.rate = rate ?? 1;
 
+  // Saved flights live on the server, so they follow the account to every device.
+  const [savedIds, setSavedIds] = useState<Record<string, number>>({}); // flight id -> saved row id
+  const [saveMsg, setSaveMsg] = useState("");
+  const routeKey = data ? `${data.params.o}-${data.params.d}-${data.params.dep}-${data.params.ret}` : "";
+  useEffect(() => {
+    if (!data) return;
+    const p = data.params;
+    fetch(`/api/saved?${new URLSearchParams({ o: p.o, d: p.d, dep: p.dep, ret: p.ret })}`)
+      .then(async (r) => {
+        if (!r.ok) return setSavedIds({}); // not signed in: nothing saved to show
+        const rows: { id: number; flightId: string }[] = await r.json();
+        setSavedIds(Object.fromEntries(rows.map((x) => [x.flightId, x.id])));
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeKey]);
+
+  async function toggleSave(f: Flight) {
+    if (!data) return;
+    setSaveMsg("");
+    const sid = savedIds[f.id];
+    if (sid) {
+      const r = await fetch(`/api/saved?id=${sid}`, { method: "DELETE" });
+      if (r.ok) setSavedIds((s) => Object.fromEntries(Object.entries(s).filter(([k]) => k !== f.id)));
+      return;
+    }
+    const r = await fetch("/api/saved", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...data.params, flight: f }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) return setSaveMsg("login");
+    if (!r.ok) return setSaveMsg(j.error ?? "Could not save this flight.");
+    setSavedIds((s) => ({ ...s, [f.id]: j.id }));
+  }
+
   useEffect(() => {
     setNow(Date.now());
     const i = setInterval(() => setNow(Date.now()), 60000);
@@ -308,6 +345,11 @@ export default function Results({ params }: { params: Record<string, string> }) 
 
         <section aria-labelledby="fares" className="min-w-0">
           <h2 id="fares" className="mb-2">{rows.length} of {data.flights.length} fares</h2>
+          {saveMsg && (
+            <p role="alert" className="err mb-2">
+              {saveMsg === "login" ? <>Sign in to save flights; they sync to all your devices. <Link href="/login">Sign in</Link> or <Link href="/register">create an account</Link>.</> : saveMsg}
+            </p>
+          )}
           {phone ? (
             <>
               <label htmlFor="sort" className="mb-1">Sort by</label>
@@ -328,7 +370,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
               </select>
               <ul className="grid gap-3">
                 {rows.map((f) => (
-                  <FareCard key={f.id} f={f} open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)} book={data.links[0]} />
+                  <FareCard key={f.id} f={f} open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)} book={data.links[0]} saved={!!savedIds[f.id]} onSave={() => toggleSave(f)} />
                 ))}
               </ul>
             </>
@@ -349,7 +391,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
               </thead>
               <tbody>
                 {rows.map((f) => (
-                  <FareRow key={f.id} f={f} open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)} book={data.links[0]} />
+                  <FareRow key={f.id} f={f} open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)} book={data.links[0]} saved={!!savedIds[f.id]} onSave={() => toggleSave(f)} />
                 ))}
               </tbody>
             </table>
@@ -365,7 +407,15 @@ export default function Results({ params }: { params: Record<string, string> }) 
   );
 }
 
-function FareRow({ f, open, onToggle, book }: { f: Flight; open: boolean; onToggle: () => void; book: { name: string; url: string } }) {
+function SaveButton({ saved, onSave }: { saved: boolean; onSave: () => void }) {
+  return (
+    <button type="button" className="btn btn-plain" aria-pressed={saved} onClick={onSave}>
+      {saved ? "Saved ✓" : "Save"}
+    </button>
+  );
+}
+
+function FareRow({ f, open, onToggle, book, saved, onSave }: { f: Flight; open: boolean; onToggle: () => void; book: { name: string; url: string }; saved: boolean; onSave: () => void }) {
   return (
     <>
       <tr>
@@ -377,6 +427,7 @@ function FareRow({ f, open, onToggle, book }: { f: Flight; open: boolean; onTogg
         <td>{f.emissionsKg ? `${f.emissionsKg} kg` : "n/a"}</td>
         <td className="font-bold">{money(f.price, f.currency)}</td>
         <td className="whitespace-nowrap">
+          <span className="mr-2"><SaveButton saved={saved} onSave={onSave} /></span>
           <button type="button" className="btn btn-plain mr-2" aria-expanded={open} onClick={onToggle}>{open ? "Hide" : "Details"}</button>
           <a className="btn" href={f.bookingUrl || book.url} target="_blank" rel="noopener noreferrer">
             View on {f.bookingUrl ? f.bookingProvider || "airline site" : book.name}
@@ -415,7 +466,7 @@ function FareDetails({ f }: { f: Flight }) {
 }
 
 /** Phone layout: one card per fare instead of a wide table. */
-function FareCard({ f, open, onToggle, book }: { f: Flight; open: boolean; onToggle: () => void; book: { name: string; url: string } }) {
+function FareCard({ f, open, onToggle, book, saved, onSave }: { f: Flight; open: boolean; onToggle: () => void; book: { name: string; url: string }; saved: boolean; onSave: () => void }) {
   return (
     <li className="card grid gap-2">
       <div className="flex items-baseline justify-between gap-2">
@@ -427,8 +478,9 @@ function FareCard({ f, open, onToggle, book }: { f: Flight; open: boolean; onTog
         {f.emissionsKg ? `, ${f.emissionsKg} kg CO₂` : ""}
       </p>
       <div className="grid grid-cols-2 gap-2">
+        <SaveButton saved={saved} onSave={onSave} />
         <button type="button" className="btn btn-plain" aria-expanded={open} onClick={onToggle}>{open ? "Hide details" : "Details"}</button>
-        <a className="btn text-center" href={f.bookingUrl || book.url} target="_blank" rel="noopener noreferrer">
+        <a className="btn col-span-2 text-center" href={f.bookingUrl || book.url} target="_blank" rel="noopener noreferrer">
           View on {f.bookingUrl ? f.bookingProvider || "airline site" : book.name}
         </a>
       </div>
