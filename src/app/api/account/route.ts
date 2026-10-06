@@ -1,5 +1,6 @@
 import { clearSession, userId } from "@/lib/auth";
 import { dec } from "@/lib/crypto";
+import { CURRENCIES } from "@/lib/currencies";
 import { sql } from "@/lib/db";
 import { json } from "@/lib/http";
 
@@ -7,9 +8,9 @@ import { json } from "@/lib/http";
 export async function GET(req: Request) {
   const uid = await userId();
   if (!uid) return json({ error: "Sign in required" }, 401);
-  const [user] = await sql`SELECT email, email_verified, email_alerts, created_at FROM users WHERE id = ${uid}`;
+  const [user] = await sql`SELECT email, email_verified, email_alerts, currency, created_at FROM users WHERE id = ${uid}`;
   if (!user) return json({ error: "Not found" }, 404);
-  if (!new URL(req.url).searchParams.has("export")) return json({ email: user.email, emailAlerts: user.email_alerts });
+  if (!new URL(req.url).searchParams.has("export")) return json({ email: user.email, emailAlerts: user.email_alerts, currency: user.currency });
   const searches = await sql`SELECT origin, destination, departure_date, return_date, passengers, cabin, created_at FROM saved_searches WHERE user_id = ${uid}`;
   const alerts = await sql`
     SELECT r.origin, r.destination, r.depart_date, r.return_date, a.drop_pct, a.price_threshold, a.frequency, a.alert_status, a.created_at
@@ -32,7 +33,11 @@ export async function PATCH(req: Request) {
   const uid = await userId();
   if (!uid) return json({ error: "Sign in required" }, 401);
   const b = await req.json().catch(() => ({}));
-  await sql`UPDATE users SET email_alerts = ${b.emailAlerts === true}, updated_at = now() WHERE id = ${uid}`;
+  // Only the fields that were sent change (null keeps the stored value).
+  const emailAlerts = typeof b.emailAlerts === "boolean" ? b.emailAlerts : null;
+  const currency = typeof b.currency === "string" && CURRENCIES.includes(b.currency) ? b.currency : null;
+  if (b.currency !== undefined && !currency) return json({ error: "Unknown currency." }, 400);
+  await sql`UPDATE users SET email_alerts = COALESCE(${emailAlerts}, email_alerts), currency = COALESCE(${currency}, currency), updated_at = now() WHERE id = ${uid}`;
   return json({ ok: true });
 }
 

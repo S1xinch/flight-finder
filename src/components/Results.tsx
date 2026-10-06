@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { CURRENCIES, currencyName } from "@/lib/currencies";
 import Sheet from "./Sheet";
 import type { DealInfo, Pt } from "@/lib/deals";
 import { hourOf, type Flight } from "@/lib/normalize";
@@ -58,14 +59,6 @@ const WINDOWS = ["00:00 – 06:00", "06:00 – 12:00", "12:00 – 18:00", "18:00
 // Display currency. Fares arrive in USD; Results sets this on each render and money() converts, so every price on the
 // page (summary, table, cards, slider) switches together. Rates: ECB via /api/rates.
 const FX = { cur: "USD", rate: 1 };
-const CURRENCIES = ["USD", "EUR", "GBP", "AUD", "CAD", "NZD", "JPY", "CHF", "SEK", "NOK", "DKK", "SGD", "HKD", "CNY", "KRW", "INR", "BRL", "MXN", "ZAR", "TRY", "PLN", "CZK", "HUF", "ILS", "THB", "MYR", "IDR", "PHP"];
-const currencyName = (c: string) => {
-  try {
-    return `${c} - ${new Intl.DisplayNames(["en"], { type: "currency" }).of(c)}`;
-  } catch {
-    return c;
-  }
-};
 const money = (n: number, cur = "USD") => {
   const convert = cur === "USD" && FX.cur !== "USD";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: convert ? FX.cur : cur, maximumFractionDigits: 0 }).format(convert ? n * FX.rate : n);
@@ -98,11 +91,26 @@ export default function Results({ params }: { params: Record<string, string> }) 
   const [cur, setCur] = useState("USD");
   const [fx, setFx] = useState<{ date: string; rates: Record<string, number> } | null>(null);
   const [fxError, setFxError] = useState("");
+  const [signedIn, setSignedIn] = useState(false);
+  const saveCurrency = (c: string) =>
+    fetch("/api/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currency: c }) }).catch(() => {});
+  // Preference: the account's value when signed in (follows you across devices), otherwise this device's.
   useEffect(() => {
+    let local = "USD";
     try {
       const saved = localStorage.getItem("ff_currency");
-      if (saved && CURRENCIES.includes(saved)) setCur(saved);
+      if (saved && CURRENCIES.includes(saved)) local = saved;
     } catch {}
+    setCur(local);
+    fetch("/api/account")
+      .then(async (r) => {
+        if (!r.ok) return;
+        const j = await r.json();
+        setSignedIn(true);
+        if (j.currency && j.currency !== "USD") setCur(j.currency);
+        else if (local !== "USD") saveCurrency(local); // chosen on this device before signing in: keep it
+      })
+      .catch(() => {});
   }, []);
   useEffect(() => {
     if (cur === "USD" || fx) return;
@@ -277,6 +285,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
               try {
                 localStorage.setItem("ff_currency", e.target.value);
               } catch {}
+              if (signedIn) saveCurrency(e.target.value);
             }}
           >
             {CURRENCIES.map((c) => (

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { CURRENCIES, currencyName } from "@/lib/currencies";
 
 type Alert = { id: number; origin: string; destination: string; dep: string; ret: string; passengers: number; cabin: string; drop_pct: number; threshold: number; frequency: string; status: string; current_price: number | null; updated: number | null };
 type Search = { o: string; d: string; dep: string; ret: string; pax: number; cabin: string };
@@ -26,6 +27,7 @@ export default function Dashboard() {
   const [searches, setSearches] = useState<Search[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [saved, setSaved] = useState<Saved[]>([]);
+  const [currency, setCurrency] = useState("USD");
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [err, setErr] = useState("");
 
@@ -36,7 +38,9 @@ export default function Dashboard() {
     setSearches(await s.json());
     setBookings(await b.json());
     setSaved(await sv.json());
-    setEmailAlerts((await u.json()).emailAlerts);
+    const acct = await u.json();
+    setEmailAlerts(acct.emailAlerts);
+    setCurrency(acct.currency ?? "USD");
   }, [router]);
   useEffect(() => { load(); }, [load]);
 
@@ -191,6 +195,27 @@ export default function Dashboard() {
           <input type="checkbox" checked={emailAlerts} onChange={(e) => act("/api/account", "PATCH", { emailAlerts: e.target.checked })} />
           Send price alert emails
         </label>
+        <div>
+          <label htmlFor="currency">Display currency</label>
+          <select
+            id="currency"
+            className="input"
+            style={{ width: "auto", maxWidth: "100%" }}
+            value={currency}
+            onChange={(e) => {
+              setCurrency(e.target.value);
+              try {
+                localStorage.setItem("ff_currency", e.target.value); // keep this device in step
+              } catch {}
+              act("/api/account", "PATCH", { currency: e.target.value });
+            }}
+          >
+            {CURRENCIES.map((c) => (
+              <option key={c} value={c}>{currencyName(c)}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-sm">Used for prices on search results, on every device you sign in on.</p>
+        </div>
         <p className="flex flex-wrap gap-3">
           <a className="btn btn-plain" href="/api/account?export=1">Download my data</a>
           <button className="btn btn-plain" onClick={signOut}>Sign out</button>
