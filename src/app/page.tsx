@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Price from "@/components/Price";
 import { InstallHint } from "@/components/Pwa";
 import SearchForm from "@/components/SearchForm";
 import { userId } from "@/lib/auth";
@@ -7,7 +8,6 @@ import { topDeals } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
-const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const q = (o: string, d: string, dep: string, ret: string, extra = "") =>
   `/results?o=${o}&d=${d}&dep=${dep}${ret ? `&ret=${ret}` : ""}${extra}`;
 
@@ -62,9 +62,9 @@ export default async function Home() {
               {deals.map((d) => (
                 <li key={`${d.origin}${d.destination}${d.dep}${d.ret}`} className="card">
                   <span className="badge badge-deal">Deal</span>
-                  <p className="mt-2 text-lg font-bold">{d.origin} to {d.destination}: {money(d.price)}</p>
+                  <p className="mt-2 text-lg font-bold">{d.origin} to {d.destination}: <Price usd={d.price} /></p>
                   <p className="text-sm">
-                    {money(d.saving)} below the 30-day average of {money(d.avg30)}. Departs {d.dep}.
+                    <Price usd={d.saving} /> below the 30-day average of <Price usd={d.avg30} />. Departs {d.dep}.
                   </p>
                   <Link href={q(d.origin, d.destination, d.dep, d.ret)}>View fares</Link>
                 </li>

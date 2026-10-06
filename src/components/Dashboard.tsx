@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { CURRENCIES, currencyName } from "@/lib/currencies";
+import { money, useCurrency } from "@/lib/money";
 
 type Alert = { id: number; origin: string; destination: string; dep: string; ret: string; passengers: number; cabin: string; drop_pct: number; threshold: number; frequency: string; status: string; current_price: number | null; updated: number | null };
 type Search = { o: string; d: string; dep: string; ret: string; pax: number; cabin: string };
@@ -13,7 +14,6 @@ type Saved = {
   price: number; currency: string; created_at: string;
   flight: { airline: string; flightNumber: string; departure: string; arrival: string; durationMin: number; stops: number; bookingProvider: string; bookingUrl: string };
 };
-const fmt = (n: number, c: string) => new Intl.NumberFormat("en-US", { style: "currency", currency: c, maximumFractionDigits: 0 }).format(n);
 const hm = (m: number) => (m ? `${Math.floor(m / 60)}h ${m % 60}m` : "");
 
 const api = (url: string, method = "GET", body?: unknown) =>
@@ -27,7 +27,7 @@ export default function Dashboard() {
   const [searches, setSearches] = useState<Search[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [saved, setSaved] = useState<Saved[]>([]);
-  const [currency, setCurrency] = useState("USD");
+  const { cur: currency, shown, error: fxError, setCurrency } = useCurrency(); // shared with results and homepage
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [err, setErr] = useState("");
 
@@ -40,7 +40,6 @@ export default function Dashboard() {
     setSaved(await sv.json());
     const acct = await u.json();
     setEmailAlerts(acct.emailAlerts);
-    setCurrency(acct.currency ?? "USD");
   }, [router]);
   useEffect(() => { load(); }, [load]);
 
@@ -90,8 +89,8 @@ export default function Dashboard() {
                 {alerts.map((a) => (
                   <tr key={a.id}>
                     <td><Link href={link(a.origin, a.destination, a.dep, a.ret, a.passengers, a.cabin)}>{a.origin} to {a.destination}</Link><br /><span className="text-sm">{a.dep}{a.ret ? ` to ${a.ret}` : ""}</span></td>
-                    <td>{a.current_price ? `$${Math.round(a.current_price)}` : "n/a"}{a.updated ? <><br /><span className="text-sm">{new Date(a.updated).toLocaleDateString()}</span></> : null}</td>
-                    <td>${Math.round(a.threshold)} ({a.drop_pct}% drop)</td>
+                    <td>{a.current_price ? money(a.current_price) : "n/a"}{a.updated ? <><br /><span className="text-sm">{new Date(a.updated).toLocaleDateString()}</span></> : null}</td>
+                    <td>{money(a.threshold)} ({a.drop_pct}% drop)</td>
                     <td>
                       <label htmlFor={`f${a.id}`} className="sr-only">Frequency</label>
                       <select id={`f${a.id}`} className="input" value={a.frequency} onChange={(e) => act("/api/alerts", "PATCH", { id: a.id, frequency: e.target.value })}>
@@ -125,7 +124,7 @@ export default function Dashboard() {
                 <li key={s.id} className="card grid gap-1" style={past ? { opacity: 0.65 } : undefined}>
                   <div className="flex items-baseline justify-between gap-2">
                     <strong>{s.origin} to {s.destination}</strong>
-                    <span className="text-xl font-bold">{fmt(s.price, s.currency)}</span>
+                    <span className="text-xl font-bold">{money(s.price, s.currency)}</span>
                   </div>
                   <p className="text-sm">{s.dep}{s.ret ? ` to ${s.ret}` : ""}{past ? " (departed)" : ""}</p>
                   <p className="text-sm">
@@ -202,19 +201,17 @@ export default function Dashboard() {
             className="input"
             style={{ width: "auto", maxWidth: "100%" }}
             value={currency}
-            onChange={(e) => {
-              setCurrency(e.target.value);
-              try {
-                localStorage.setItem("ff_currency", e.target.value); // keep this device in step
-              } catch {}
-              act("/api/account", "PATCH", { currency: e.target.value });
-            }}
+            onChange={(e) => setCurrency(e.target.value)}
           >
             {CURRENCIES.map((c) => (
               <option key={c} value={c}>{currencyName(c)}</option>
             ))}
           </select>
-          <p className="mt-1 text-sm">Used for prices on search results, on every device you sign in on.</p>
+          <p className="mt-1 text-sm">
+            Used for prices across the site (search results, deals, alerts and saved flights), on every device you sign in on.
+            {shown !== "USD" && " Converted from USD at European Central Bank rates."}
+          </p>
+          {fxError && <p role="alert" className="err mt-1 text-sm">{fxError}</p>}
         </div>
         <p className="flex flex-wrap gap-3">
           <a className="btn btn-plain" href="/api/account?export=1">Download my data</a>

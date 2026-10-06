@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { CURRENCIES, currencyName } from "@/lib/currencies";
+import { money, useCurrency } from "@/lib/money";
 import Sheet from "./Sheet";
 import type { DealInfo, Pt } from "@/lib/deals";
 import { hourOf, type Flight } from "@/lib/normalize";
@@ -56,13 +57,6 @@ function FilterShell({ wide, open, onOpen, onClose, children }: { wide: boolean;
 }
 
 const WINDOWS = ["00:00 – 06:00", "06:00 – 12:00", "12:00 – 18:00", "18:00 – 00:00"];
-// Display currency. Fares arrive in USD; Results sets this on each render and money() converts, so every price on the
-// page (summary, table, cards, slider) switches together. Rates: ECB via /api/rates.
-const FX = { cur: "USD", rate: 1 };
-const money = (n: number, cur = "USD") => {
-  const convert = cur === "USD" && FX.cur !== "USD";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: convert ? FX.cur : cur, maximumFractionDigits: 0 }).format(convert ? n * FX.rate : n);
-};
 const dur = (m: number) => (m ? `${Math.floor(m / 60)}h ${m % 60}m` : "n/a");
 const ago = (ms: number) => {
   const m = Math.max(0, Math.round(ms / 60000));
@@ -88,46 +82,8 @@ export default function Results({ params }: { params: Record<string, string> }) 
   const [sheet, setSheet] = useState(false);
   const phone = useSyncExternalStore(subscribePhone, () => matchMedia(PHONE).matches, () => false);
 
-  const [cur, setCur] = useState("USD");
-  const [fx, setFx] = useState<{ date: string; rates: Record<string, number> } | null>(null);
-  const [fxError, setFxError] = useState("");
-  const [signedIn, setSignedIn] = useState(false);
-  const saveCurrency = (c: string) =>
-    fetch("/api/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currency: c }) }).catch(() => {});
-  // Preference: the account's value when signed in (follows you across devices), otherwise this device's.
-  useEffect(() => {
-    let local = "USD";
-    try {
-      const saved = localStorage.getItem("ff_currency");
-      if (saved && CURRENCIES.includes(saved)) local = saved;
-    } catch {}
-    setCur(local);
-    fetch("/api/account")
-      .then(async (r) => {
-        if (!r.ok) return;
-        const j = await r.json();
-        setSignedIn(true);
-        if (j.currency && j.currency !== "USD") setCur(j.currency);
-        else if (local !== "USD") saveCurrency(local); // chosen on this device before signing in: keep it
-      })
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    if (cur === "USD" || fx) return;
-    fetch("/api/rates")
-      .then(async (r) => {
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error);
-        setFx(j);
-      })
-      .catch((e) => {
-        setFxError(e.message || "Exchange rates are unavailable right now.");
-        setCur("USD");
-      });
-  }, [cur, fx]);
-  const rate = cur !== "USD" ? fx?.rates[cur] : undefined;
-  FX.cur = rate ? cur : "USD";
-  FX.rate = rate ?? 1;
+  // Shared display currency (also used by the dashboard and homepage): preference, applied currency and rate.
+  const { cur, shown, rate, date: fxDate, loading: fxLoading, error: fxError, setCurrency } = useCurrency();
 
   // Saved flights live on the server, so they follow the account to every device.
   const [savedIds, setSavedIds] = useState<Record<string, number>>({}); // flight id -> saved row id
@@ -224,12 +180,12 @@ export default function Results({ params }: { params: Record<string, string> }) 
         return h < 0 || windows[Math.floor(h / 6)];
       })
       .filter((f) => !hrs || !f.durationMin || f.durationMin <= hrs * 60)
-      .filter((f) => f.price * FX.rate >= (Number(minPrice) || 0) && f.price <= maxPrice)
+      .filter((f) => f.price * rate >= (Number(minPrice) || 0) && f.price <= maxPrice)
       .sort((a, b) => {
         const x = sort.key === "departure" ? a.departure.localeCompare(b.departure) : a[sort.key] - b[sort.key];
         return x * sort.dir || a.price - b.price;
       });
-  }, [data, direct, stops, skip, windows, maxHours, minPrice, maxPrice, sort, cur, fx]);
+  }, [data, direct, stops, skip, windows, maxHours, minPrice, maxPrice, sort, rate]);
 
   if (!params.o) return <p>Enter a search above to see fares.</p>;
   if (loading) return <p role="status">Searching live fares. A new search can take a minute or two; repeat searches are instant for an hour.</p>;
@@ -279,22 +235,14 @@ export default function Results({ params }: { params: Record<string, string> }) 
             className="input"
             style={{ width: "auto" }}
             value={cur}
-            onChange={(e) => {
-              setFxError("");
-              setCur(e.target.value);
-              try {
-                localStorage.setItem("ff_currency", e.target.value);
-              } catch {}
-              if (signedIn) saveCurrency(e.target.value);
-            }}
+            onChange={(e) => setCurrency(e.target.value)}
           >
             {CURRENCIES.map((c) => (
               <option key={c} value={c}>{currencyName(c)}</option>
             ))}
           </select>
-          {cur !== "USD" && !fx && !fxError && <span role="status" className="text-sm">Loading rates…</span>}
-          {rate && fx && <span className="text-sm">Converted from USD at the European Central Bank rate of {fx.date}. Booking sites charge in their own currency.</span>}
-          {cur !== "USD" && fx && !rate && <span role="alert" className="err text-sm">No rate for {cur}. Showing USD.</span>}
+          {fxLoading && <span role="status" className="text-sm">Loading rates…</span>}
+          {shown !== "USD" && <span className="text-sm">Converted from USD at the European Central Bank rate of {fxDate}. Booking sites charge in their own currency.</span>}
           {fxError && <span role="alert" className="err text-sm">{fxError}</span>}
         </div>
         <p className="flex flex-wrap gap-4">
@@ -345,7 +293,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
             <summary className="cursor-pointer font-bold">Duration and price</summary>
             <label htmlFor="mh" className="mt-2">Max duration (hours)</label>
             <input id="mh" type="number" min={1} className="input" value={maxHours} onChange={(e) => setMaxHours(e.target.value)} />
-            <label htmlFor="mn" className="mt-2">Min price ({FX.cur})</label>
+            <label htmlFor="mn" className="mt-2">Min price ({shown})</label>
             <input id="mn" type="number" min={0} className="input" value={minPrice} onChange={(e) => setMinPrice(e.target.value)} />
             <label htmlFor="mx" className="mt-2">Max price: {money(maxPrice)}</label>
             <input id="mx" type="range" min={0} max={ceiling} value={maxPrice} onChange={(e) => setMaxPrice(Number(e.target.value))} className="w-full" />
