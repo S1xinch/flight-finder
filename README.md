@@ -29,6 +29,10 @@ Stack: Next.js (App Router) + Tailwind + Recharts, Neon Postgres, Upstash Redis,
   Three direct failures in a row pause the direct path for 10 minutes. Set `SEARCH_PROVIDER=brightdata` to switch it off.
   Either way the cheapest fare is logged to `price_history`.
 - The direct read is unofficial and may break or be blocked when Google changes its page; that is what the fallback is for.
+- "Find a flight by number" (home page) calls `/api/flightnumber`, which looks up the flight's route in Aviationstack's live
+  schedule (cached 30 days; visitors who are not signed in get 5 uncached lookups a day), then opens the normal results for that
+  route and date filtered to the flight (`?fn=`). The results page also has a flight-number filter for any search.
+  A flight that is not in today's live schedule cannot be resolved; searching by route still works.
 - `/api/status` shows live flight status for saved flights near their travel day (Aviationstack, free plan: 100 requests a month).
 - Deal = price at or below 90% of the route's 30-day average (needs 3+ observations). High = 110% or more.
 - `.github/workflows/refresh.yml` calls `/api/cron` every 6 hours. It re-prices the stalest watched routes and emails due alerts.
