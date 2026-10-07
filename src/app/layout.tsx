@@ -66,6 +66,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </header>
         <main id="main">{children}</main>
         <footer className="wrap mt-8 flex flex-wrap gap-4 text-sm">
+          <Link href="/accounts">How accounts work</Link>
           <Link href="/privacy">Privacy Policy</Link>
           <Link href="/terms">Terms and Conditions</Link>
           <a href="https://github.com/S1xinch/flight-finder">Source code</a>
