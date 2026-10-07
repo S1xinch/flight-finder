@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { CURRENCIES, currencyName } from "@/lib/currencies";
+import { sameFlight } from "@/lib/flightstatus";
 import { money, useCurrency } from "@/lib/money";
 import Sheet from "./Sheet";
 import type { DealInfo, Pt } from "@/lib/deals";
@@ -78,6 +79,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
   const [maxPrice, setMaxPrice] = useState(0);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "price", dir: 1 });
   const [open, setOpen] = useState<string | null>(null);
+  const [fnq, setFnq] = useState(params.fn ?? ""); // flight-number filter; ?fn= comes from "Find a flight by number"
   const wide = useSyncExternalStore(subscribeWide, () => matchMedia(WIDE).matches, () => true);
   const [sheet, setSheet] = useState(false);
   const phone = useSyncExternalStore(subscribePhone, () => matchMedia(PHONE).matches, () => false);
@@ -175,6 +177,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
     return data.flights
       .filter((f) => (direct ? f.stops === 0 : stops[Math.min(f.stops, 2)]))
       .filter((f) => !skip.has(f.airline))
+      .filter((f) => !fnq.trim() || f.legs.some((l) => l.segments.some((s) => sameFlight(s.flightNumber, fnq))))
       .filter((f) => {
         const h = hourOf(f.departure);
         return h < 0 || windows[Math.floor(h / 6)];
@@ -185,7 +188,7 @@ export default function Results({ params }: { params: Record<string, string> }) 
         const x = sort.key === "departure" ? a.departure.localeCompare(b.departure) : a[sort.key] - b[sort.key];
         return x * sort.dir || a.price - b.price;
       });
-  }, [data, direct, stops, skip, windows, maxHours, minPrice, maxPrice, sort, rate]);
+  }, [data, direct, stops, skip, windows, maxHours, minPrice, maxPrice, sort, rate, fnq]);
 
   if (!params.o) return <p>Enter a search above to see fares.</p>;
   if (loading) return <p role="status">Searching live fares. This usually takes a few seconds, or a couple of minutes if the backup source is needed; repeat searches are instant for an hour.</p>;
@@ -263,6 +266,11 @@ export default function Results({ params }: { params: Record<string, string> }) 
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
         <FilterShell wide={wide} open={sheet} onOpen={() => setSheet(true)} onClose={() => setSheet(false)}>
           <details open>
+            <summary className="cursor-pointer font-bold">Flight number</summary>
+            <label htmlFor="fnq" className="mt-2">Show only this flight</label>
+            <input id="fnq" className="input uppercase" placeholder="BA 117" autoComplete="off" spellCheck={false} value={fnq} onChange={(e) => setFnq(e.target.value)} />
+          </details>
+          <details open>
             <summary className="cursor-pointer font-bold">Stops</summary>
             <label className="mt-2 flex items-center gap-2 font-normal">
               <input type="checkbox" checked={direct} onChange={(e) => setDirect(e.target.checked)} /> Direct flights only
@@ -302,6 +310,13 @@ export default function Results({ params }: { params: Record<string, string> }) 
 
         <section aria-labelledby="fares" className="min-w-0">
           <h2 id="fares" className="mb-2">{rows.length} of {data.flights.length} fares</h2>
+          {fnq.trim() && (
+            <p className="mb-2" role="status">
+              Showing flight <strong>{fnq.trim().toUpperCase()}</strong> on {data.params.dep} only.{" "}
+              <button type="button" className="underline" style={{ color: "var(--color-brand)" }} onClick={() => setFnq("")}>Show all fares</button>
+              {rows.length === 0 && " No fares matched. The flight may not operate on this date, or its fares are not published yet."}
+            </p>
+          )}
           {saveMsg && (
             <p role="alert" className="err mb-2">
               {saveMsg === "login" ? <>Sign in to save flights; they sync to all your devices. <Link href="/login">Sign in</Link> or <Link href="/register">create an account</Link>.</> : saveMsg}

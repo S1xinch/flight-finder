@@ -1,4 +1,5 @@
 import Link from "next/link";
+import FlightNumberForm from "@/components/FlightNumberForm";
 import Price from "@/components/Price";
 import { InstallHint } from "@/components/Pwa";
 import SearchForm from "@/components/SearchForm";
@@ -34,7 +35,10 @@ export default async function Home() {
             Live fares from Google Flights, price history for every route you search, and an email when a price drops.
             Free. No affiliate links: booking buttons go straight to the booking site.
           </p>
-          <div className="text-ink"><SearchForm /></div>
+          <div className="grid gap-4 text-ink">
+            <SearchForm />
+            <FlightNumberForm />
+          </div>
         </div>
       </section>
 

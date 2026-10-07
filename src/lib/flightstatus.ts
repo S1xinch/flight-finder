@@ -24,6 +24,13 @@ export function flightCode(s: string) {
   return m ? `${m[1]}${m[2]}`.toUpperCase() : null;
 }
 
+/** Does a flight number such as "BA 117" match what the user typed ("ba117", "117")? Spaces and case are ignored. */
+export function sameFlight(flightNumber: string, query: string) {
+  const norm = (s: string) => s.replace(/\s+/g, "").toUpperCase();
+  const q = norm(query);
+  return q.length > 0 && norm(flightNumber).includes(q);
+}
+
 const str = (v: unknown) => String(v ?? "").trim();
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const side = (s: any): Side => ({

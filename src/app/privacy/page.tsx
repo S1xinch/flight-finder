@@ -29,6 +29,7 @@ export default function Privacy() {
         <li>Neon (database) and Upstash (cache and rate limiting).</li>
         <li>Google Flights: to find fares, our server reads Google&apos;s public Flights pages for the route and dates you search. Google sees our server&apos;s address, not yours, and receives no account details.</li>
         <li>Bright Data, our backup source, which retrieves public Google Flights results when the direct read fails. It receives only the flight query, not your identity.</li>
+        <li>Aviationstack, which receives only a flight number when you look one up or check a saved flight&apos;s status, never your account details.</li>
         <li>Resend, which delivers account and alert emails to your address.</li>
       </ul>
       <p>

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { searchAirports, toAirport, type AirportRow } from "../src/lib/airports.ts";
 import { dealInfo } from "../src/lib/deals.ts";
-import { flightCode, normalizeStatus, pickFlight } from "../src/lib/flightstatus.ts";
+import { flightCode, normalizeStatus, pickFlight, sameFlight } from "../src/lib/flightstatus.ts";
 import { fromFli } from "../src/lib/fromfli.ts";
 import { parseParams } from "../src/lib/links.ts";
 import { hourOf, normalize } from "../src/lib/normalize.ts";
@@ -153,6 +153,14 @@ test("fromFli maps one-way and round-trip rows from the direct search", () => {
   assert.equal(fromFli([{ ...out, price: 0 }], url).length, 0); // unpriced rows are skipped
   assert.equal(fromFli([out, out], url).length, 1); // duplicates collapse
   assert.equal(fromFli([out], () => "http://insecure")[0].bookingUrl, ""); // only https links are kept
+});
+
+test("sameFlight matches flight numbers ignoring spaces and case", () => {
+  assert.equal(sameFlight("BA 117", "ba117"), true);
+  assert.equal(sameFlight("BA 117", "BA 117"), true);
+  assert.equal(sameFlight("BA 1170", "BA 117"), true); // prefix of a longer number: still shown, the user can refine
+  assert.equal(sameFlight("BA 117", "AA 117"), false);
+  assert.equal(sameFlight("BA 117", "  "), false); // an empty query never matches (the filter treats it as "off")
 });
 
 test("parseParams validates", () => {
