@@ -162,6 +162,34 @@ html[data-standalone="true"] .back { display: inline-flex; }
 .sheet-grip { width: 36px; height: 5px; border-radius: 3px; background: #888; margin: 0 auto 8px; }
 .sheet-body { overflow: auto; overscroll-behavior: contain; padding: 0 16px calc(16px + env(safe-area-inset-bottom)); }
 
+/* ---------- Startup splash (installed app only, once per launch) ----------
+   Matches the native launch image (/pwa/splash): brand blue, plane at 22% of the short edge, title below.
+   When the app is ready the plane tips back, then flies off to the upper right while the splash fades. */
+.splash {
+  display: none; position: fixed; inset: 0; z-index: 200; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--color-brand); color: #fff; overflow: hidden;
+}
+@media (display-mode: standalone) {
+  html:not([data-splash="done"]) .splash { display: flex; }
+}
+html[data-splash-force]:not([data-splash="done"]) .splash { display: flex; }
+.splash-plane { width: 22vmin; height: 22vmin; }
+.splash-title { margin-top: 3vw; font-size: 6vw; font-weight: 700; letter-spacing: -0.01em; }
+.splash--go { pointer-events: none; animation: splash-out 0.5s ease-in 0.6s forwards; }
+.splash--go .splash-plane { animation: plane-away 1.05s cubic-bezier(0.55, 0, 0.85, 0.35) forwards; }
+.splash--go .splash-title { animation: title-out 0.3s ease-out forwards; }
+@keyframes plane-away {
+  0% { transform: translate(0, 0) rotate(0) scale(1); }
+  18% { transform: translate(-1.5vmin, 1.5vmin) rotate(-6deg) scale(0.96); } /* the little wind-up before take-off */
+  100% { transform: translate(85vmax, -85vmax) rotate(14deg) scale(1.5); }
+}
+@keyframes title-out { to { opacity: 0; transform: translateY(1.5vw); } }
+@keyframes splash-out { to { opacity: 0; visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) {
+  .splash--go .splash-plane, .splash--go .splash-title { animation: none; }
+  .splash--go { animation: splash-out 0.25s ease-out 0s forwards; }
+}
+
 /* iOS install hint */
 .install-hint { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
 

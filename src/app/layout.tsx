@@ -27,8 +27,23 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, view
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const uid = await userId();
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Startup splash: once per launch of the installed app. Runs before first paint so the splash covers the page;
+            add ?splash=1 to any URL to preview it in a browser. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var d=document.documentElement;if(/[?&]splash=1/.test(location.search)){d.dataset.splashForce="1"}else if(sessionStorage.getItem("ff_splash")){d.dataset.splash="done"}else{sessionStorage.setItem("ff_splash","1")}}catch(e){}`,
+          }}
+        />
+      </head>
       <body>
+        <div id="splash" className="splash" aria-hidden="true">
+          <svg className="splash-plane" viewBox="0 0 32 32">
+            <path d="M5 18l22-9-7 16-4-6-5 4z" fill="#fff" />
+          </svg>
+          <div className="splash-title">Flight Finder</div>
+        </div>
         <PwaInit />
         <a href="#main" className="sr-only focus:not-sr-only">Skip to content</a>
         <header className="chrome">

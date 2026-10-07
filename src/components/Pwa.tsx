@@ -20,6 +20,21 @@ export function PwaInit() {
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
+
+    // Startup splash: once the app is ready (and the splash has been visible long enough not to flicker), the plane flies off.
+    const root = document.documentElement;
+    const splash = document.getElementById("splash");
+    if (splash && root.dataset.splash !== "done") {
+      const finish = () => {
+        root.dataset.splash = "done";
+      };
+      splash.addEventListener("animationend", (e) => e.target === splash && finish());
+      const start = setTimeout(() => {
+        splash.classList.add("splash--go");
+        setTimeout(finish, 3000); // safety net in case the animation event never fires
+      }, Math.max(0, 900 - performance.now()));
+      return () => clearTimeout(start);
+    }
   }, []);
   return null;
 }
